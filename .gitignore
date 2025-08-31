@@ -1,3 +1,27 @@
+# Airflow
+airflow.db*
+airflow.cfg
+airflow-webserver.pid
+logs/
+unittests.cfg
+.airflow/
+.pytest_cache/
+__pycache__/
+.env
+.venv
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+*.egg-info/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+simple_auth_manager_passwords.json.generated
+
 # Python-generated files
 __pycache__/
 *.py[oc]
@@ -9,5 +33,6 @@ wheels/
 # Virtual environments
 .venv
 
-/dev
+/data
 *.duckdb
+/logs

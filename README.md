@@ -9,7 +9,7 @@ This project extracts brewery data from the [Open Brewery DB](https://www.openbr
 ## Features
 
 - **Extract**: Downloads brewery data from a public CSV.
-- **Load**: Loads raw data into DuckDB (`dev/obdb.duckdb`).
+- **Load**: Loads raw data into DuckDB (`data/obdb.duckdb`).
 - **Transform**: Uses dbt models to clean and structure the data.
 - **Orchestrate**: (Planned) Airflow DAGs for automation.
 
@@ -18,7 +18,7 @@ This project extracts brewery data from the [Open Brewery DB](https://www.openbr
 ```
 main.py                  # Entry point (demo/placeholder)
 extract/load_raw_data.py # Extracts and loads raw data into DuckDB
-dev/obdb.duckdb          # Local DuckDB database
+data/obdb.duckdb          # Local DuckDB database
 dbt_project/
 	brewery_models/
 		dbt_project.yml      # dbt project config
@@ -52,7 +52,7 @@ pip install -r requirements.txt
 python extract/load_raw_data.py
 ```
 
-This downloads the latest breweries data and loads it into `dev/obdb.duckdb` as the `raw_breweries` table.
+This downloads the latest breweries data and loads it into `data/obdb.duckdb` as the `raw_breweries` table.
 
 ### 2. Transform with dbt
 
@@ -79,7 +79,7 @@ dbt test --project-dir dbt_project/brewery_models/
 
 - Add new dbt models in `dbt_project/brewery_models/models/`.
 - Update or add ETL scripts in `extract/`.
-- (Planned) Add Airflow DAGs for scheduling.
+- Add Airflow DAGs for scheduling.
 
 ## License
 

@@ -1,0 +1,9 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: main
+    description: "Source data from the Open Brewery DB dataset."
+    tables:
+      - name: raw_breweries
+        description: "Raw brewery data as loaded from the source CSV."

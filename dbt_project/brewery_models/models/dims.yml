@@ -1,0 +1,24 @@
+version: 2
+
+models:
+  - name: dim_breweries
+    description: "Cleaned and standardized brewery data."
+    columns:
+      - name: brewery_id
+        description: "The unique identifier for each brewery."
+        tests:
+          - unique
+          - not_null
+
+      - name: brewery_type
+        description: "The standardized type of the brewery."
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['microbrewery', 'taproom', 'brewpub', 'regional', 'contract', 'large', 'Unknown']
+
+      - name: country
+        description: "The country where the brewery is located."
+        tests:
+          - not_null

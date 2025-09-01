@@ -36,3 +36,4 @@ wheels/
 /data
 *.duckdb
 /logs
+remomix-output.xml

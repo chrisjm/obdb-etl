@@ -12,7 +12,15 @@ SELECT
   country,
   phone,
   website_url,
-  longitude,
-  latitude
+  CASE
+    WHEN latitude >= -90
+    AND latitude <= 90 THEN CAST(latitude AS DECIMAL(10, 6))
+    ELSE NULL
+  END AS latitude,
+  CASE
+    WHEN longitude >= -180
+    AND longitude <= 180 THEN CAST(longitude AS DECIMAL(10, 6))
+    ELSE NULL
+  END AS longitude
 FROM
   {{ source('raw', 'raw_obdb_breweries') }}

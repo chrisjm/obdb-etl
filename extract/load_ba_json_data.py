@@ -18,7 +18,7 @@ DATA_URL = "https://www.example.com/wp-files/large-file.json"
 LOCAL_JSON_PATH = PROJECT_ROOT / "data" / "breweries.json"
 
 # The name of the table we'll create in DuckDB
-TABLE_NAME = "raw_json_data"
+TABLE_NAME = "raw_ba_json_data"
 
 
 def main():

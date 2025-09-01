@@ -8,7 +8,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # The local path to our DuckDB database file, relative to the project root
-DB_PATH = PROJECT_ROOT / "dev" / "obdb.duckdb"
+DB_PATH = PROJECT_ROOT / "data" / "obdb.duckdb"
 
 # The raw data source (a CSV file on the web)
 DATA_URL = (
@@ -16,7 +16,7 @@ DATA_URL = (
 )
 
 # The name of the table we'll create in DuckDB
-TABLE_NAME = "raw_breweries"
+TABLE_NAME = "raw_obdb_breweries"
 
 
 def main():

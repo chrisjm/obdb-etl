@@ -5,7 +5,7 @@ sources:
     schema: main
     description: "Source data from the Open Brewery DB dataset."
     tables:
-      - name: raw_breweries
+      - name: raw_obdb_breweries
         description: "Raw brewery data as loaded from the source CSV."
-      - name: raw_json_data
+      - name: raw_ba_json_data
         description: "Raw brewery data from the BA JSON source."

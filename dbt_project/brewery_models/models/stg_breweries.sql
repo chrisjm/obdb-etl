@@ -15,4 +15,4 @@ SELECT
   longitude,
   latitude
 FROM
-  {{ source('raw', 'raw_breweries') }}
+  {{ source('raw', 'raw_obdb_breweries') }}

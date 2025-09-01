@@ -13,7 +13,7 @@ SELECT
   CAST(BillingAddress.longitude AS DECIMAL(10, 6)) AS longitude,
   Membership_Record_Status__c AS ba_membership_status
 FROM
-  {{ source('raw', 'raw_json_data') }}
+  {{ source('raw', 'raw_ba_json_data') }}
 WHERE
   Is_Craft_Brewery__c IS TRUE
   AND Brewery_Type__c NOT IN (

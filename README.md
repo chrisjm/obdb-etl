@@ -52,7 +52,7 @@ pip install -r requirements.txt
 python extract/load_raw_data.py
 ```
 
-This downloads the latest breweries data and loads it into `data/obdb.duckdb` as the `raw_breweries` table.
+This downloads the latest breweries data and loads it into `data/obdb.duckdb` as the `raw_obdb_breweries` table.
 
 ### 2. Transform with dbt
 

@@ -7,3 +7,5 @@ sources:
     tables:
       - name: raw_breweries
         description: "Raw brewery data as loaded from the source CSV."
+      - name: raw_json_data
+        description: "Raw brewery data from the BA JSON source."

@@ -1,0 +1,715 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+dags/
+  brewery_pipeline_dag.py
+dbt_project/
+  brewery_models/
+    models/
+      dim_breweries.sql
+      dims.yml
+      map_brewery_ids.sql
+      sources.yml
+      stg_ba_breweries.sql
+      stg_breweries.sql
+    .gitignore
+    dbt_project.yml
+extract/
+  load_json_data.py
+  load_raw_data.py
+.gitignore
+.python-version
+main.py
+pyproject.toml
+README.md
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="dbt_project/brewery_models/models/map_brewery_ids.sql">
+WITH stg_obdb AS (
+  -- Get the master brewery data from the OBDB source
+  SELECT
+    brewery_id,
+    name,
+    street_address,
+    city,
+    state_province,
+    country
+  FROM
+    {{ ref('dim_breweries') }}
+),
+stg_ba AS (
+  -- Get the brewery data from the BA JSON source to be mapped
+  SELECT
+    ba_brewery_id,
+    name,
+    street_address,
+    city,
+    state_province,
+    country
+  FROM
+    {{ ref('stg_ba_breweries') }}
+),
+-- Normalize key text fields for reliable joining
+normalized_obdb AS (
+  SELECT
+    brewery_id,
+    LOWER(TRIM(name)) AS name,
+    LOWER(TRIM(city)) AS city,
+    LOWER(TRIM(state_province)) AS state_province
+  FROM
+    stg_obdb
+  WHERE
+    TRIM(country) = 'United States' -- Use TRIM and the correct country name
+),
+normalized_ba AS (
+  SELECT
+    ba_brewery_id,
+    LOWER(TRIM(name)) AS name,
+    LOWER(TRIM(city)) AS city,
+    LOWER(TRIM(state_province)) AS state_province
+  FROM
+    stg_ba
+  WHERE
+    TRIM(country) = 'United States' -- Use TRIM and the correct country name
+),
+-- Strategy 1: High-confidence match on exact name and state.
+-- This is based on the query that successfully returned 4,434 rows.
+name_state_matches AS (
+  SELECT
+    obdb.brewery_id,
+    ba.ba_brewery_id,
+    'exact_name_state' AS match_strategy
+  FROM
+    normalized_obdb AS obdb
+    INNER JOIN normalized_ba AS ba ON obdb.name = ba.name
+    AND obdb.state_province = ba.state_province
+),
+-- Strategy 2: For remaining records, try a fuzzy name match within the same city.
+-- This is a medium-confidence match that finds slight name variations.
+fuzzy_name_city_matches AS (
+  SELECT
+    obdb.brewery_id,
+    ba.ba_brewery_id,
+    'fuzzy_name_city' AS match_strategy
+  FROM
+    normalized_obdb AS obdb
+    INNER JOIN normalized_ba AS ba ON obdb.state_province = ba.state_province
+    AND obdb.city = ba.city
+    AND jaro_winkler_similarity(obdb.name, ba.name) > 0.90
+  WHERE
+    -- IMPORTANT: Exclude breweries that we've already matched in the first strategy
+    obdb.brewery_id NOT IN (
+      SELECT
+        brewery_id
+      FROM
+        name_state_matches
+    )
+    AND ba.ba_brewery_id NOT IN (
+      SELECT
+        ba_brewery_id
+      FROM
+        name_state_matches
+    )
+)
+SELECT
+  *
+FROM
+  name_state_matches
+UNION
+ALL
+SELECT
+  *
+FROM
+  fuzzy_name_city_matches
+</file>
+
+<file path="dbt_project/brewery_models/models/stg_ba_breweries.sql">
+SELECT
+  Id AS ba_brewery_id,
+  Name AS name,
+  Brewery_Type__c AS brewery_type,
+  BillingAddress.street AS street_address,
+  BillingAddress.city AS city,
+  BillingAddress.state AS state_province,
+  BillingAddress.postalCode AS postal_code,
+  BillingAddress.country AS country,
+  Phone AS phone,
+  Website AS website_url,
+  CAST(BillingAddress.latitude AS DECIMAL(10, 6)) AS latitude,
+  CAST(BillingAddress.longitude AS DECIMAL(10, 6)) AS longitude,
+  Membership_Record_Status__c AS ba_membership_status
+FROM
+  {{ source('raw', 'raw_json_data') }}
+WHERE
+  Is_Craft_Brewery__c IS TRUE
+  AND Brewery_Type__c NOT IN (
+    'Alt Prop',
+    'Office only location',
+    'Location',
+    'Beer Brand'
+  )
+</file>
+
+<file path="extract/load_json_data.py">
+import duckdb
+import pandas as pd
+import os
+from pathlib import Path
+
+# --- Configuration ---
+# Get the project root directory
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+# The local path to our DuckDB database file
+DB_PATH = PROJECT_ROOT / "data" / "obdb.duckdb"
+
+# The raw data source (a temporary JSON file on the web)
+# https://www.brewersassociation.org/wp-content/themes/ba2019/json-store/breweries/breweries.json?nocache=1756663355733
+DATA_URL = "https://www.example.com/wp-files/large-file.json"
+
+# The local cache path for the downloaded JSON data
+LOCAL_JSON_PATH = PROJECT_ROOT / "data" / "breweries.json"
+
+# The name of the table we'll create in DuckDB
+TABLE_NAME = "raw_json_data"
+
+
+def main():
+    """
+    Extracts data from a JSON source. It first checks for a local file,
+    if not found, it downloads, saves it locally, and then proceeds with analysis.
+    """
+    print("--- JSON ETL process started ---")
+
+    # EXTRACT: Check for a local file first, otherwise download and save.
+    df = None
+    if LOCAL_JSON_PATH.exists():
+        try:
+            print(f"📄 Local file found. Loading data from {LOCAL_JSON_PATH}...")
+            df = pd.read_json(LOCAL_JSON_PATH)
+            print(f"✅ Extracted {len(df)} rows from local file.")
+        except Exception as e:
+            print(f"❌ Failed to read or parse local JSON file: {e}")
+            return
+    else:
+        try:
+            print(f"📥 Local file not found. Downloading from {DATA_URL}...")
+            df = pd.read_json(DATA_URL)
+            print(f"✅ Extracted {len(df)} rows from URL.")
+
+            # SAVE: Save the downloaded data to the local path for future runs
+            print(f"💾 Saving data to {LOCAL_JSON_PATH}...")
+            LOCAL_JSON_PATH.parent.mkdir(parents=True, exist_ok=True)
+            df.to_json(LOCAL_JSON_PATH, orient="records", indent=4)
+            print("✅ Data saved locally for future use.")
+
+        except Exception as e:
+            print(f"❌ Failed to download or parse JSON data from URL: {e}")
+            return
+
+    # Halt if the DataFrame could not be created for any reason
+    if df is None:
+        print("❌ DataFrame could not be loaded. Halting execution.")
+        return
+
+    # --- ANALYSIS & DEBUGGING ---
+    print("\n--- 🕵️ Data Analysis ---")
+    if not df.empty:
+        # Print the first 5 rows to see the structure (the "head")
+        print("\nFirst 5 records:")
+        print(df.head())
+
+        # Print the DataFrame's dimensions (rows, columns)
+        print(f"\nDataFrame shape: {df.shape}")
+
+        # Print a summary of the columns and their data types
+        print("\nColumn data types and non-null counts:")
+        df.info()
+    else:
+        print("DataFrame is empty. No data to analyze.")
+    print("--- End of Analysis ---\n")
+
+    # --- LOAD (Optional) ---
+    # The following code will load the data into DuckDB.
+    # It is commented out by default so you can analyze first.
+    # To enable it, simply remove the triple quotes (""") before and after.
+    print(f"🦆 Connecting to DuckDB at {DB_PATH}...")
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    con = duckdb.connect(database=str(DB_PATH), read_only=False)
+
+    print("📦 Installing and loading SPATIAL extension...")
+    con.sql("INSTALL spatial;")
+    con.sql("LOAD spatial;")
+    print("✅ SPATIAL extension loaded.")
+
+    print(f"Writing {len(df)} rows to table '{TABLE_NAME}'...")
+    con.sql(f"CREATE OR REPLACE TABLE {TABLE_NAME} AS SELECT * FROM df")
+
+    # Verify the data was loaded
+    result = con.sql(f"SELECT COUNT(*) FROM {TABLE_NAME}").fetchone()
+    row_count = result[0] if result is not None else 0
+    print(f"✅ Successfully loaded {row_count} rows into '{TABLE_NAME}'.")
+
+    con.close()
+    print("--- ETL process finished ---")
+
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="dags/brewery_pipeline_dag.py">
+import pendulum
+from airflow.decorators import dag, task
+
+default_args = {
+    "owner": "chris@openbrewerydb.org",
+    "retries": 2,
+    "retry_delay": pendulum.duration(minutes=1),
+}
+
+
+@dag(
+    dag_id="brewery_data_pipeline",
+    start_date=pendulum.datetime(2025, 8, 29, tz="America/Los_Angeles"),
+    schedule="*/5 * * * *",
+    catchup=False,
+    doc_md="""
+  ### Brewery Data Pipeline (v2)
+  This DAG extracts brewery data, transforms it with dbt, and runs data quality tests.
+  """,
+)
+def brewery_pipeline():
+    """Defines the full brewery data pipeline."""
+
+    project_dir = "{{ dag.folder }}/.."
+    dbt_project_dir = f"{project_dir}/dbt_project/brewery_models"
+    venv_python = f"{project_dir}/.venv/bin/python"
+
+    @task.bash(cwd=project_dir)
+    def load_raw_data() -> str:
+        """Runs the Python script to load raw data."""
+        return f"{venv_python} ./extract/load_raw_data.py"
+
+    @task.bash(cwd=project_dir)
+    def load_raw_json_data() -> str:
+        """Runs the Python script to load raw JSON data."""
+        return f"{venv_python} ./extract/load_json_data.py"
+
+    @task.bash(cwd=dbt_project_dir)
+    def dbt_run() -> str:
+        """Runs the dbt models."""
+        return f"dbt run"
+
+    @task.bash(cwd=dbt_project_dir)
+    def dbt_test() -> str:
+        """Runs the dbt tests after the models are built."""
+        return f"dbt test"
+
+    load_task = load_raw_data()
+    load_json_task = load_raw_json_data()
+    run_task = dbt_run()
+    test_task = dbt_test()
+
+    [load_csv_task, load_json_task] >> run_task >> test_task
+
+
+brewery_pipeline()
+</file>
+
+<file path="dbt_project/brewery_models/models/dim_breweries.sql">
+WITH staged AS (
+  SELECT
+    *
+  FROM
+    {{ ref('stg_breweries') }}
+),
+transformed AS (
+  SELECT
+    -- IDs and Names (renaming 'id' for clarity)
+    id AS brewery_id,
+    name,
+    -- Standardize brewery_type using a CASE statement
+    CASE
+      WHEN brewery_type IN ('micro', 'nano') THEN 'microbrewery'
+      WHEN brewery_type IN ('taproom', 'bar', 'beergarden') THEN 'taproom'
+      WHEN brewery_type = 'brewpub' THEN 'brewpub'
+      WHEN brewery_type = 'regional' THEN 'regional'
+      WHEN brewery_type = 'contract' THEN 'contract'
+      WHEN brewery_type = 'large' THEN 'large'
+      ELSE 'Unknown'
+    END AS brewery_type,
+    -- Combine address fields into a single, clean street_address
+    trim(concat_ws(' ', address_1, address_2, address_3)) AS street_address,
+    city,
+    state_province,
+    postal_code,
+    country,
+    -- Format lat/lon to a consistent precision
+    cast(longitude AS decimal(10, 6)) AS longitude,
+    cast(latitude AS decimal(10, 6)) AS latitude,
+    -- Format phone number to E.164 standard (+1XXXXXXXXXX)
+    CASE
+      WHEN length(phone) = 10 THEN '+1' || phone
+      ELSE NULL
+    END AS phone,
+    website_url
+  FROM
+    staged
+)
+SELECT
+  *
+FROM
+  transformed
+</file>
+
+<file path="dbt_project/brewery_models/models/dims.yml">
+version: 2
+
+models:
+  - name: dim_breweries
+    description: "Cleaned and standardized brewery data."
+    columns:
+      - name: brewery_id
+        description: "The unique identifier for each brewery."
+        tests:
+          - unique
+          - not_null
+
+      - name: brewery_type
+        description: "The standardized type of the brewery."
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['microbrewery', 'taproom', 'brewpub', 'regional', 'contract', 'large', 'Unknown']
+
+      - name: country
+        description: "The country where the brewery is located."
+        tests:
+          - not_null
+</file>
+
+<file path="dbt_project/brewery_models/models/sources.yml">
+version: 2
+
+sources:
+  - name: raw
+    schema: main
+    description: "Source data from the Open Brewery DB dataset."
+    tables:
+      - name: raw_breweries
+        description: "Raw brewery data as loaded from the source CSV."
+      - name: raw_json_data
+        description: "Raw brewery data from the BA JSON source."
+</file>
+
+<file path="dbt_project/brewery_models/models/stg_breweries.sql">
+-- stg_breweries.sql
+SELECT
+  id,
+  name,
+  brewery_type,
+  address_1,
+  address_2,
+  address_3,
+  city,
+  state_province,
+  postal_code,
+  country,
+  phone,
+  website_url,
+  longitude,
+  latitude
+FROM
+  {{ source('raw', 'raw_breweries') }}
+</file>
+
+<file path="dbt_project/brewery_models/.gitignore">
+target/
+dbt_packages/
+logs/
+</file>
+
+<file path="dbt_project/brewery_models/dbt_project.yml">
+name: 'brewery_models'
+version: '1.0.0'
+profile: 'brewery_models'
+
+# These configurations specify where dbt should look for different types of files.
+# The `model-paths` config, for example, states that models in this project can be
+# found in the "models/" directory. You probably won't need to change these!
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  brewery_models:
+    +materialized: view
+</file>
+
+<file path="extract/load_raw_data.py">
+import duckdb
+import pandas as pd
+import os
+from pathlib import Path
+
+# --- Configuration ---
+# Get the project root directory (the parent of the 'src' directory)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+# The local path to our DuckDB database file, relative to the project root
+DB_PATH = PROJECT_ROOT / "dev" / "obdb.duckdb"
+
+# The raw data source (a CSV file on the web)
+DATA_URL = (
+    "https://raw.githubusercontent.com/openbrewerydb/openbrewerydb/master/breweries.csv"
+)
+
+# The name of the table we'll create in DuckDB
+TABLE_NAME = "raw_breweries"
+
+
+def main():
+    """
+    Extracts data from a URL, loads it into a Pandas DataFrame,
+    and then loads that data into a DuckDB database.
+    """
+    print("---  ETL process started ---")
+
+    # Ensure the target directory exists
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    # EXTRACT: Read the data from the URL into a Pandas DataFrame
+    print(f"📥 Extracting data from {DATA_URL}...")
+    df = pd.read_csv(DATA_URL)
+    print(f"✅ Extracted {len(df)} rows.")
+
+    # LOAD: Connect to DuckDB and load the data
+    print(f"🦆 Connecting to DuckDB at {DB_PATH}...")
+    con = duckdb.connect(database=str(DB_PATH), read_only=False)
+
+    print(f"Writing {len(df)} rows to table '{TABLE_NAME}'...")
+    con.sql(f"CREATE OR REPLACE TABLE {TABLE_NAME} AS SELECT * FROM df")
+
+    # Verify the data was loaded
+    result = con.sql(f"SELECT COUNT(*) FROM {TABLE_NAME}").fetchone()
+    row_count = result[0] if result is not None else 0
+    print(f"✅ Successfully loaded {row_count} rows into '{TABLE_NAME}'.")
+
+    con.close()
+    print("--- ETL process finished ---")
+
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path=".python-version">
+3.13
+</file>
+
+<file path="main.py">
+def main():
+    print("Hello from obdb-etl!")
+
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="pyproject.toml">
+[project]
+name = "obdb-etl"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "apache-airflow>=3.0.6",
+    "dbt-duckdb>=1.9.4",
+    "duckdb>=1.3.2",
+    "pandas>=2.3.2",
+]
+</file>
+
+<file path=".gitignore">
+# Airflow
+airflow.db*
+airflow.cfg
+airflow-webserver.pid
+logs/
+unittests.cfg
+.airflow/
+.pytest_cache/
+__pycache__/
+.env
+.venv
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+*.egg-info/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+simple_auth_manager_passwords.json.generated
+
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+/data
+*.duckdb
+/logs
+</file>
+
+<file path="README.md">
+# obdb-etl
+
+ETL pipeline for Open Brewery DB data, using DuckDB, dbt, and Apache Airflow.
+
+## Overview
+
+This project extracts brewery data from the [Open Brewery DB](https://www.openbrewerydb.org/), loads it into a local DuckDB database, and transforms it using dbt. The pipeline is designed for analytics and data warehousing use cases.
+
+## Features
+
+- **Extract**: Downloads brewery data from a public CSV.
+- **Load**: Loads raw data into DuckDB (`data/obdb.duckdb`).
+- **Transform**: Uses dbt models to clean and structure the data.
+- **Orchestrate**: (Planned) Airflow DAGs for automation.
+
+## Project Structure
+
+```
+main.py                  # Entry point (demo/placeholder)
+extract/load_raw_data.py # Extracts and loads raw data into DuckDB
+data/obdb.duckdb          # Local DuckDB database
+dbt_project/
+	brewery_models/
+		dbt_project.yml      # dbt project config
+		models/              # dbt models (SQL transformations)
+		...
+```
+
+## Setup
+
+### Prerequisites
+
+- Python 3.13+
+- [DuckDB](https://duckdb.org/)
+- [dbt-duckdb](https://docs.getdbt.com/docs/core/connect-data-platform/duckdb)
+- [pandas](https://pandas.pydata.org/)
+- [Apache Airflow](https://airflow.apache.org/) (optional, for orchestration)
+
+Install dependencies:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+## Usage
+
+### 1. Extract and Load Raw Data
+
+```bash
+python extract/load_raw_data.py
+```
+
+This downloads the latest breweries data and loads it into `data/obdb.duckdb` as the `raw_breweries` table.
+
+### 2. Transform with dbt
+
+Navigate to the dbt project directory:
+
+```bash
+dbt run --project-dir dbt_project/brewery_models/
+```
+
+This will create/refresh models like `stg_breweries` and `dim_breweries` in DuckDB.
+
+## Testing
+
+```bash
+dbt test --project-dir dbt_project/brewery_models/
+```
+
+## dbt Models
+
+- `stg_breweries`: Stages raw data from DuckDB.
+- `dim_breweries`: Cleans, standardizes, and enriches brewery data for analytics.
+
+## Development
+
+- Add new dbt models in `dbt_project/brewery_models/models/`.
+- Update or add ETL scripts in `extract/`.
+- Add Airflow DAGs for scheduling.
+
+## License
+
+MIT
+</file>
+
+</files>

@@ -30,6 +30,11 @@ def brewery_pipeline():
         """Runs the Python script to load raw data."""
         return f"{venv_python} ./extract/load_raw_data.py"
 
+    @task.bash(cwd=project_dir)
+    def load_raw_json_data() -> str:
+        """Runs the Python script to load raw JSON data."""
+        return f"{venv_python} ./extract/load_json_data.py"
+
     @task.bash(cwd=dbt_project_dir)
     def dbt_run() -> str:
         """Runs the dbt models."""
@@ -41,10 +46,11 @@ def brewery_pipeline():
         return f"dbt test"
 
     load_task = load_raw_data()
+    load_json_task = load_raw_json_data()
     run_task = dbt_run()
     test_task = dbt_test()
 
-    load_task >> run_task >> test_task
+    [load_csv_task, load_json_task] >> run_task >> test_task
 
 
 brewery_pipeline()

@@ -1,9 +1,10 @@
+import json
 import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from io import BytesIO
-from typing import Iterable, Sequence
+from typing import Iterable, Mapping, Sequence
 
 import pandas as pd
 
@@ -40,6 +41,18 @@ def load_csv_from_url(url: str) -> pd.DataFrame:
 def load_json_from_url(url: str) -> pd.DataFrame:
     raw = fetch_bytes(url)
     return pd.read_json(BytesIO(raw))
+
+
+def summarize_null_rates(df: pd.DataFrame, columns: Iterable[str]) -> dict[str, float]:
+    summary: dict[str, float] = {}
+    total = len(df)
+    if total == 0:
+        return {f"null_pct_{c}": 0.0 for c in columns}
+    for c in columns:
+        if c in df.columns:
+            nulls = df[c].isna().sum()
+            summary[f"null_pct_{c}"] = round(nulls / total, 4)
+    return summary
 
 
 def ensure_non_empty(df: pd.DataFrame, context: str) -> pd.DataFrame:
@@ -80,6 +93,7 @@ def log_ingest_run(
     row_count: int,
     status: str,
     note: str | None = None,
+    metrics: Mapping[str, object] | None = None,
     duration_seconds: float | None = None,
 ) -> None:
     con.execute(
@@ -91,12 +105,13 @@ def log_ingest_run(
             row_count BIGINT,
             status STRING,
             note STRING,
+            metrics_json STRING,
             duration_seconds DOUBLE
         )
         """
     )
     con.execute(
-        "INSERT INTO ingest_runs VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO ingest_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         (
             datetime.now(timezone.utc),
             source,
@@ -104,6 +119,7 @@ def log_ingest_run(
             row_count,
             status,
             note,
+            json.dumps(metrics) if metrics else None,
             duration_seconds,
         ),
     )

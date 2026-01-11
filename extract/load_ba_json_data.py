@@ -96,6 +96,7 @@ def main():
                 row_count,
                 "success",
                 None,
+                metrics={"row_count": row_count},
                 duration_seconds=duration,
             )
         print("--- ETL process finished ---")

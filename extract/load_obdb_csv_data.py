@@ -7,6 +7,7 @@ from extract.io_utils import (
     ensure_required_columns,
     load_csv_from_url,
     log_ingest_run,
+    summarize_null_rates,
 )
 from extract.duckdb_utils import write_df_to_duckdb
 
@@ -61,6 +62,10 @@ def main():
         row_count = write_df_to_duckdb(df, table_name, db_path, load_spatial=False)
         print(f"✅ Successfully loaded {row_count} rows into '{table_name}'.")
         duration = time.monotonic() - started
+        metrics = {
+            "row_count": row_count,
+            **summarize_null_rates(df, ["latitude", "longitude"]),
+        }
         with duckdb.connect(database=str(db_path), read_only=False) as con:
             log_ingest_run(
                 con,
@@ -69,6 +74,7 @@ def main():
                 row_count,
                 "success",
                 None,
+                metrics=metrics,
                 duration_seconds=duration,
             )
         print("--- ETL process finished ---")

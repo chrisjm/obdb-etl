@@ -32,7 +32,24 @@ def main():
         df = load_csv_from_url(data_url)
         df = ensure_non_empty(df, "Open Brewery DB CSV")
         df = ensure_required_columns(
-            df, ["id", "name", "city", "state"], "Open Brewery DB CSV"
+            df,
+            [
+                "id",
+                "name",
+                "brewery_type",
+                "address_1",
+                "address_2",
+                "address_3",
+                "city",
+                "state_province",
+                "postal_code",
+                "country",
+                "phone",
+                "website_url",
+                "longitude",
+                "latitude",
+            ],
+            "Open Brewery DB CSV",
         )
         df = ensure_not_all_null(df, ["latitude", "longitude"], "Open Brewery DB CSV")
         print(f"✅ Extracted {len(df)} rows.")

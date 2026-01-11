@@ -1,6 +1,5 @@
 import duckdb
 import pandas as pd
-import os
 from pathlib import Path
 
 # --- Configuration ---
@@ -12,7 +11,7 @@ DB_PATH = PROJECT_ROOT / "data" / "obdb.duckdb"
 
 # The raw data source (a temporary JSON file on the web)
 # https://www.brewersassociation.org/wp-content/themes/ba2019/json-store/breweries/breweries.json?nocache=1756663355733
-DATA_URL = "https://www.example.com/wp-files/large-file.json"
+DATA_URL = "https://www.brewersassociation.org/wp-content/themes/ba2019/json-store/breweries/breweries.json?nocache=1756663355733"
 
 # The local cache path for the downloaded JSON data
 LOCAL_JSON_PATH = PROJECT_ROOT / "data" / "breweries.json"

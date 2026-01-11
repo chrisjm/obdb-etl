@@ -38,15 +38,15 @@ def brewery_pipeline():
     @task.bash(cwd=dbt_project_dir)
     def dbt_run() -> str:
         """Runs the dbt models."""
-        return f"dbt run"
+        return "dbt run"
 
     @task.bash(cwd=dbt_project_dir)
     def dbt_test() -> str:
         """Runs the dbt tests after the models are built."""
-        return f"dbt test"
+        return "dbt test"
 
-    load_obdb_task = load_raw_data()
-    load_ba_task = load_raw_ba_json_data()
+    load_obdb_task = load_obdb_data()
+    load_ba_task = load_ba_data()
     run_task = dbt_run()
     test_task = dbt_test()
 

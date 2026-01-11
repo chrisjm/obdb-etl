@@ -1,0 +1,6 @@
+brewery_models:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: {{ env_var('OBDB_DUCKDB_PATH', '/tmp/obdb.duckdb') }}

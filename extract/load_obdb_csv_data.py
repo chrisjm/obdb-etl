@@ -1,3 +1,4 @@
+import time
 import duckdb
 from extract.config import load_settings
 from extract.io_utils import (
@@ -16,6 +17,7 @@ def main():
     and then loads that data into a DuckDB database.
     """
     settings = load_settings()
+    started = time.monotonic()
     db_path = settings.db_path
     data_url = settings.obdb_csv_url
     table_name = settings.obdb_table
@@ -58,12 +60,22 @@ def main():
         print(f"🦆 Connecting to DuckDB at {db_path}...")
         row_count = write_df_to_duckdb(df, table_name, db_path, load_spatial=False)
         print(f"✅ Successfully loaded {row_count} rows into '{table_name}'.")
+        duration = time.monotonic() - started
         with duckdb.connect(database=str(db_path), read_only=False) as con:
-            log_ingest_run(con, "obdb_csv", table_name, row_count, "success", None)
+            log_ingest_run(
+                con,
+                "obdb_csv",
+                table_name,
+                row_count,
+                "success",
+                None,
+                duration_seconds=duration,
+            )
         print("--- ETL process finished ---")
     except Exception as exc:
         print(f"❌ ETL failed: {exc}")
         try:
+            duration = time.monotonic() - started
             with duckdb.connect(database=str(db_path), read_only=False) as con:
                 log_ingest_run(
                     con,
@@ -72,6 +84,7 @@ def main():
                     row_count,
                     "failed",
                     note=str(exc),
+                    duration_seconds=duration,
                 )
         finally:
             raise

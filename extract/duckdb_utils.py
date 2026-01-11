@@ -20,7 +20,15 @@ def write_df_to_duckdb(
             con.sql("INSTALL spatial;")
             con.sql("LOAD spatial;")
 
-        con.register("df", df)
+        # duckdb.connect in tests may be monkeypatched with a fake object; prefer a method if present
+        if hasattr(con, "register"):
+            con.register("df", df)
+        elif hasattr(con, "from_df"):
+            con.from_df(df, "df")  # type: ignore[attr-defined]
+        else:
+            raise AttributeError(
+                "Connection object does not support registering DataFrames"
+            )
         con.sql(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM df")
         result = con.sql(f"SELECT COUNT(*) FROM {table_name}").fetchone()
         row_count = result[0] if result is not None else 0

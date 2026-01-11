@@ -7,5 +7,49 @@ sources:
     tables:
       - name: raw_obdb_breweries
         description: "Raw brewery data as loaded from the source CSV."
+        columns:
+          - name: id
+            description: "Brewery id from Open Brewery DB."
+            tests:
+              - not_null
+              - unique
+          - name: name
+            description: "Brewery name."
+            tests:
+              - not_null
+          - name: city
+            description: "City name for the brewery."
+            tests:
+              - not_null
+          - name: state_province
+            description: "State/province for the brewery."
+            tests:
+              - not_null
+          - name: country
+            description: "Country for the brewery."
+            tests:
+              - not_null
       - name: raw_ba_json_data
         description: "Raw brewery data from the BA JSON source."
+        columns:
+          - name: id
+            description: "Brewers Association brewery identifier."
+            tests:
+              - not_null
+              - unique
+          - name: name
+            description: "Brewers Association brewery name."
+            tests:
+              - not_null
+          - name: city
+            description: "City name for the brewery."
+            tests:
+              - not_null
+          - name: state
+            description: "State for the brewery."
+            tests:
+              - not_null
+          - name: country
+            description: "Country for the brewery."
+            tests:
+              - not_null

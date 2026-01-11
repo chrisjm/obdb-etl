@@ -80,6 +80,7 @@ def log_ingest_run(
     row_count: int,
     status: str,
     note: str | None = None,
+    duration_seconds: float | None = None,
 ) -> None:
     con.execute(
         """
@@ -89,12 +90,13 @@ def log_ingest_run(
             table_name STRING,
             row_count BIGINT,
             status STRING,
-            note STRING
+            note STRING,
+            duration_seconds DOUBLE
         )
         """
     )
     con.execute(
-        "INSERT INTO ingest_runs VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO ingest_runs VALUES (?, ?, ?, ?, ?, ?, ?)",
         (
             datetime.now(timezone.utc),
             source,
@@ -102,5 +104,6 @@ def log_ingest_run(
             row_count,
             status,
             note,
+            duration_seconds,
         ),
     )

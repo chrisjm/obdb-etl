@@ -1,3 +1,5 @@
+import os
+import time
 import duckdb
 import pandas as pd
 from extract.config import load_settings
@@ -15,6 +17,7 @@ def main():
     if not found, it downloads, saves it locally, and then proceeds with analysis.
     """
     settings = load_settings()
+    started = time.monotonic()
     db_path = settings.db_path
     data_url = settings.ba_json_url
     local_json_path = settings.ba_local_json_path
@@ -66,17 +69,49 @@ def main():
 
         print(f"🦆 Connecting to DuckDB at {db_path}...")
         db_path.parent.mkdir(parents=True, exist_ok=True)
-        row_count = write_df_to_duckdb(df, table_name, db_path, load_spatial=True)
+
+        enable_spatial = os.getenv("OBDB_ENABLE_SPATIAL", "1") != "0"
+        try:
+            row_count = write_df_to_duckdb(
+                df, table_name, db_path, load_spatial=enable_spatial
+            )
+        except Exception as exc:
+            if enable_spatial:
+                print(
+                    f"⚠️ Spatial extension failed ({exc}); retrying without spatial support."
+                )
+                row_count = write_df_to_duckdb(
+                    df, table_name, db_path, load_spatial=False
+                )
+            else:
+                raise
+
+        duration = time.monotonic() - started
         print(f"✅ Successfully loaded {row_count} rows into '{table_name}'.")
         with duckdb.connect(database=str(db_path), read_only=False) as con:
-            log_ingest_run(con, "ba_json", table_name, row_count, "success", None)
+            log_ingest_run(
+                con,
+                "ba_json",
+                table_name,
+                row_count,
+                "success",
+                None,
+                duration_seconds=duration,
+            )
         print("--- ETL process finished ---")
     except Exception as exc:
         print(f"❌ ETL failed: {exc}")
         try:
+            duration = time.monotonic() - started
             with duckdb.connect(database=str(db_path), read_only=False) as con:
                 log_ingest_run(
-                    con, "ba_json", table_name, row_count, "failed", note=str(exc)
+                    con,
+                    "ba_json",
+                    table_name,
+                    row_count,
+                    "failed",
+                    note=str(exc),
+                    duration_seconds=duration,
                 )
         finally:
             raise

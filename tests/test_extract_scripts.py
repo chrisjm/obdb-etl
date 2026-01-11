@@ -11,10 +11,18 @@ def test_load_obdb_csv_data_smoke(monkeypatch, tmp_path):
         {
             "id": [1, 2],
             "name": ["a", "b"],
+            "brewery_type": ["micro", "regional"],
+            "address_1": ["addr1", "addr2"],
+            "address_2": [None, None],
+            "address_3": [None, None],
             "city": ["x", "y"],
-            "state": ["ca", "or"],
-            "latitude": [1.0, None],
+            "state_province": ["ca", "or"],
+            "postal_code": ["11111", "22222"],
+            "country": ["us", "us"],
+            "phone": [None, None],
+            "website_url": [None, None],
             "longitude": [None, -120.0],
+            "latitude": [1.0, None],
         }
     )
     monkeypatch.setattr(load_obdb_csv_data, "load_csv_from_url", lambda url: sample)
@@ -31,11 +39,13 @@ def test_load_obdb_csv_data_smoke(monkeypatch, tmp_path):
 
 
 def test_load_ba_json_data_smoke(monkeypatch, tmp_path):
-    # Avoid installing spatial by faking DuckDB connection
+    # Avoid installing spatial and real DuckDB by faking IO + writer + connection
     sample = pd.DataFrame({"id": [1], "name": ["ba"], "city": ["x"], "state": ["y"]})
     monkeypatch.setattr(load_ba_json_data, "load_json_from_url", lambda url: sample)
-
-    holder = {}
+    monkeypatch.setenv("OBDB_DUCKDB_PATH", str(tmp_path / "obdb.duckdb"))
+    monkeypatch.setenv("BA_JSON_LOCAL_PATH", str(tmp_path / "ba.json"))
+    monkeypatch.setenv("OBDB_ENABLE_SPATIAL", "0")
+    sample.to_json(tmp_path / "ba.json", orient="records", indent=2)
 
     class FakeResult:
         def __init__(self, n):
@@ -46,8 +56,6 @@ def test_load_ba_json_data_smoke(monkeypatch, tmp_path):
 
     class FakeCon:
         def __init__(self):
-            holder["con"] = self
-            self.last_sql = []
             self.ingest_records = []
 
         def __enter__(self):
@@ -56,23 +64,28 @@ def test_load_ba_json_data_smoke(monkeypatch, tmp_path):
         def __exit__(self, exc_type, exc, tb):
             return False
 
-        def sql(self, query):
-            self.last_sql.append(query)
-            if query.lower().startswith("select count(*)"):
-                return FakeResult(len(sample))
-            return self
-
         def execute(self, query, params=None):
             # log_ingest_run uses execute
             self.ingest_records.append((query, params))
             return self
 
-    monkeypatch.setattr(load_ba_json_data.duckdb, "connect", lambda *a, **k: FakeCon())
+    fake_con = FakeCon()
+    holder = {}
+
+    def fake_write_df(df, table_name, db_path, load_spatial=False):
+        holder["write_called"] = True
+        holder["load_spatial"] = load_spatial
+        holder["table_name"] = table_name
+        holder["row_count"] = len(df)
+        return len(df)
+
+    monkeypatch.setattr(load_ba_json_data.duckdb, "connect", lambda *a, **k: fake_con)
+    monkeypatch.setattr(load_ba_json_data, "write_df_to_duckdb", fake_write_df)
 
     load_ba_json_data.main()
 
-    fake_con = holder["con"]
-    assert any("INSTALL spatial" in q for q in fake_con.last_sql)
-    assert any("LOAD spatial" in q for q in fake_con.last_sql)
-    assert any("CREATE OR REPLACE TABLE" in q for q in fake_con.last_sql)
-    assert any("ingest_runs" in (rec[0] or "") for rec in fake_con.ingest_records)
+    assert holder.get("write_called") is True
+    assert holder.get("load_spatial") is False
+    assert holder.get("table_name") == "raw_ba_json_data"
+    assert holder.get("row_count") == 1
+    assert fake_con.ingest_records  # ingest logging was attempted

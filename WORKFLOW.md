@@ -8,13 +8,14 @@
 ## Orchestration (Airflow DAG)
 
 - DAG: `brewery_data_pipeline` (`dags/brewery_pipeline_dag.py`).
-- Schedule: every 5 minutes; catchup disabled; retries: 2 with 1-minute delay.
-- Tasks (bash operators, executed with project `.venv/bin/python`):
+- Schedule: env override `OBDB_DAG_SCHEDULE` (default hourly); catchup disabled; retries: 2 with 1-minute delay.
+- Tasks (bash operators, `set -euo pipefail`, executed with env-provided python):
   1. `load_obdb_data`: runs `extract/load_obdb_csv_data.py`.
   2. `load_ba_data`: runs `extract/load_ba_json_data.py`.
   3. `dbt_run`: `dbt run` in `dbt_project/brewery_models`.
   4. `dbt_test`: `dbt test` in `dbt_project/brewery_models`.
 - Dependencies: both extracts → dbt run → dbt test.
+- Env overrides: `OBDB_PROJECT_DIR`, `OBDB_DBT_PROJECT_DIR`, `OBDB_VENV_PYTHON`.
 
 ## Extract & Load
 
@@ -22,12 +23,13 @@
   - Source: `https://raw.githubusercontent.com/openbrewerydb/openbrewerydb/master/breweries.csv`
   - Target DB: `data/obdb.duckdb`
   - Table: `raw_obdb_breweries`
-  - Behavior: downloads CSV with pandas, writes/replaces DuckDB table.
+  - Behavior: downloads CSV with retry, validates non-empty/required columns, ensures lat/long not all null, writes/replaces table, logs ingest to `ingest_runs`.
 - `extract/load_ba_json_data.py`
   - Source: BA JSON URL (cached locally at `data/breweries.json` if absent).
   - Target DB: `data/obdb.duckdb`
   - Table: `raw_ba_json_data`
-  - Behavior: load JSON (local cache preferred), prints quick profile, installs/loads DuckDB `spatial` extension, writes/replaces table.
+  - Behavior: load JSON (prefers local cache), prints profile, loads DuckDB spatial extension, writes/replaces table via shared writer, logs ingest to `ingest_runs`.
+- CLI: `uv run python -m extract.cli {obdb|ba|all}` to trigger loaders.
 
 ## Transform & Test (dbt)
 
@@ -50,8 +52,8 @@
 
 ## Environment Variables & Config
 
-- **Repository code does not read any environment variables directly.**
-- Airflow: uses its own env-driven config; no project-specific env keys set here.
+- Extract loaders: `OBDB_DUCKDB_PATH`, `OBDB_CSV_URL`, `BA_JSON_URL`, `BA_JSON_LOCAL_PATH`, `OBDB_TABLE`, `BA_TABLE`.
+- Airflow: `OBDB_DAG_SCHEDULE`, `OBDB_PROJECT_DIR`, `OBDB_DBT_PROJECT_DIR`, `OBDB_VENV_PYTHON`.
 - dbt profile: `profile: brewery_models` requires a DuckDB profile in `~/.dbt/profiles.yml` (not committed). Example:
   ```yaml
   brewery_models:
@@ -67,8 +69,8 @@
 
 1. Create venv + install deps: `uv venv && source .venv/bin/activate && uv sync`.
 2. Load raw data (optional outside Airflow):
-   - `uv run python extract/load_obdb_csv_data.py`
-   - `uv run python extract/load_ba_json_data.py`
+   - `uv run python -m extract.cli obdb`
+   - `uv run python -m extract.cli ba`
 3. dbt: `uv run dbt run --project-dir dbt_project/brewery_models && uv run dbt test --project-dir dbt_project/brewery_models`.
 4. Airflow (optional orchestration): `uv run airflow standalone`, then enable/trigger `brewery_data_pipeline`.
 

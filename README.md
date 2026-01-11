@@ -8,22 +8,25 @@ This project extracts brewery data from the [Open Brewery DB](https://www.openbr
 
 ## Features
 
-- **Extract**: Downloads brewery data from a public CSV.
-- **Load**: Loads raw data into DuckDB (`data/obdb.duckdb`).
+- **Extract**: Downloads public CSV + JSON brewery datasets with retry and validation.
+- **Load**: Loads raw data into DuckDB (`data/obdb.duckdb`) with ingest metadata logging.
 - **Transform**: Uses dbt models to clean and structure the data.
-- **Orchestrate**: (Planned) Airflow DAGs for automation.
+- **Orchestrate**: Airflow DAG (`brewery_data_pipeline`) with env overrides for schedule/paths.
+- **CLI**: Run loaders via `python -m extract.cli {obdb|ba|all}`.
 
-## Project Structure
+## Project Structure (high level)
 
 ```
-main.py                  # Entry point (demo/placeholder)
-extract/load_obdb_csv_data.py # Extracts and loads raw data into DuckDB
-data/obdb.duckdb          # Local DuckDB database
-dbt_project/
-	brewery_models/
-		dbt_project.yml      # dbt project config
-		models/              # dbt models (SQL transformations)
-		...
+extract/
+  config.py              # env-aware settings (paths, URLs, table names)
+  io_utils.py            # retrying fetch, validations, ingest logging
+  duckdb_utils.py        # shared DuckDB writer
+  load_obdb_csv_data.py  # Open Brewery DB CSV loader
+  load_ba_json_data.py   # Brewers Association JSON loader
+  cli.py                 # thin CLI to run loaders
+dbt_project/brewery_models/  # dbt models & sources
+dags/brewery_pipeline_dag.py # Airflow DAG wiring extracts -> dbt
+tests/                   # pytest smoke tests
 ```
 
 ## Setup
@@ -54,47 +57,42 @@ All Python tools (including `dbt-duckdb`) are installed via `uv sync`; no separa
 
 ## Usage
 
-### 1. Extract and Load Raw Data
+### 1. Extract and Load (direct scripts)
 
 ```bash
 uv run python extract/load_obdb_csv_data.py
+uv run python extract/load_ba_json_data.py
 ```
 
-This downloads the latest breweries data and loads it into `data/obdb.duckdb` as the `raw_obdb_breweries` table.
+### 1b. Extract and Load via CLI (recommended)
+
+```bash
+uv run python -m extract.cli obdb   # CSV only
+uv run python -m extract.cli ba     # BA JSON only
+uv run python -m extract.cli all    # both
+```
+
+Environment overrides (optional): `OBDB_DUCKDB_PATH`, `OBDB_CSV_URL`, `BA_JSON_URL`, `BA_JSON_LOCAL_PATH`, `OBDB_TABLE`, `BA_TABLE`.
 
 ### 2. Transform with dbt
 
-Navigate to the dbt project directory:
-
 ```bash
 uv run dbt run --project-dir dbt_project/brewery_models/
+uv run dbt test --project-dir dbt_project/brewery_models/
 ```
-
-This will create/refresh models like `stg_breweries` and `dim_breweries` in DuckDB.
 
 ### 3. (Optional) Run via Airflow DAG
 
-The DAG lives at `dags/brewery_pipeline_dag.py`.
-
-Start Airflow locally with uv (Airflow 3+):
+DAG: `dags/brewery_pipeline_dag.py`
 
 ```bash
-# migrate metadata DB (once)
-uv run airflow db migrate
-
-# easiest: all-in-one local stack (webserver + scheduler + default user)
 uv run airflow standalone
-
-# UI: http://localhost:8080 (default creds printed in stdout; usually admin/admin)
+# UI: http://localhost:8080
 ```
 
-Then enable and trigger the `brewery_data_pipeline` DAG in the Airflow UI (http://localhost:8080). It will:
+Env overrides: `OBDB_DAG_SCHEDULE` (default hourly), `OBDB_PROJECT_DIR`, `OBDB_DBT_PROJECT_DIR`, `OBDB_VENV_PYTHON`.
 
-- Run `extract/load_obdb_csv_data.py`
-- Run `extract/load_ba_json_data.py`
-- Run `dbt run` and `dbt test` against `dbt_project/brewery_models/`
-
-Optional CLI trigger (instead of using the UI):
+Enable/trigger `brewery_data_pipeline` in the UI or:
 
 ```bash
 uv run airflow dags trigger brewery_data_pipeline
@@ -103,8 +101,10 @@ uv run airflow dags trigger brewery_data_pipeline
 ## Testing
 
 ```bash
-uv run dbt test --project-dir dbt_project/brewery_models/
+uv run pytest
 ```
+
+Smoke tests cover helper utilities and both extract loaders (with mocks).
 
 ## dbt Models
 
@@ -114,8 +114,8 @@ uv run dbt test --project-dir dbt_project/brewery_models/
 ## Development
 
 - Add new dbt models in `dbt_project/brewery_models/models/`.
-- Update or add ETL scripts in `extract/`.
-- Add Airflow DAGs for scheduling.
+- Update ETL scripts in `extract/` and extend validations in `io_utils.py`.
+- Add Airflow DAGs for scheduling in `dags/`.
 
 ## License
 

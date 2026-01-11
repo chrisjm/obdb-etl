@@ -1,0 +1,43 @@
+version: 2
+
+models:
+  - name: stg_breweries
+    description: "Staged Open Brewery DB records with bounded coordinates."
+    columns:
+      - name: id
+        tests:
+          - not_null
+          - unique
+      - name: brewery_type
+        tests:
+          - not_null
+      - name: country
+        tests:
+          - not_null
+      - name: latitude
+        description: "Latitude bounded to [-90, 90]; null if outside bounds."
+      - name: longitude
+        description: "Longitude bounded to [-180, 180]; null if outside bounds."
+
+  - name: stg_ba_breweries
+    description: "Staged BA breweries filtered to craft breweries."
+    columns:
+      - name: ba_brewery_id
+        tests:
+          - not_null
+          - unique
+      - name: brewery_type
+        tests:
+          - not_null
+          - accepted_values:
+              values:
+                - microbrewery
+                - taproom
+                - brewpub
+                - regional
+                - contract
+                - large
+                - Unknown
+      - name: country
+        tests:
+          - not_null

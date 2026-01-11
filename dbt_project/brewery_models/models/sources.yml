@@ -4,6 +4,9 @@ sources:
   - name: raw
     schema: main
     description: "Source data from the Open Brewery DB dataset."
+    freshness:
+      warn_after: { count: 2, period: day }
+      error_after: { count: 3, period: day }
     tables:
       - name: raw_obdb_breweries
         description: "Raw brewery data as loaded from the source CSV."

@@ -21,7 +21,7 @@ def fetch_bytes(
     while True:
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "obdb-etl/1.0"})
-            with urllib.request.urlopen(req, timeout=timeout) as resp:  # type: ignore[arg-type]
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return resp.read()
         except (urllib.error.URLError, TimeoutError):
             attempt += 1

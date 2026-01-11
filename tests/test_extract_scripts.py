@@ -30,11 +30,13 @@ def test_load_obdb_csv_data_smoke(monkeypatch, tmp_path):
     load_obdb_csv_data.main()
 
     with duckdb.connect(str(db_path), read_only=True) as con:
-        count = con.sql("SELECT COUNT(*) FROM raw_obdb_breweries").fetchone()[0]
-        assert count == 2
+        count_row = con.sql("SELECT COUNT(*) FROM raw_obdb_breweries").fetchone()
+        assert count_row is not None
+        assert count_row[0] == 2
         ingest = con.sql(
             "SELECT status FROM ingest_runs WHERE source='obdb_csv'"
         ).fetchone()
+        assert ingest is not None
         assert ingest[0] == "success"
 
 
@@ -70,7 +72,7 @@ def test_load_ba_json_data_smoke(monkeypatch, tmp_path):
             return self
 
     fake_con = FakeCon()
-    holder = {}
+    holder: dict[str, object] = {}
 
     def fake_write_df(df, table_name, db_path, load_spatial=False):
         holder["write_called"] = True

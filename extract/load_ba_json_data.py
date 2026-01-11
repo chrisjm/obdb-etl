@@ -1,6 +1,10 @@
 import duckdb
 import pandas as pd
 from extract.config import load_settings
+from extract.io_utils import (
+    ensure_non_empty,
+    load_json_from_url,
+)
 
 
 def main():
@@ -29,7 +33,7 @@ def main():
     else:
         try:
             print(f"📥 Local file not found. Downloading from {data_url}...")
-            df = pd.read_json(data_url)
+            df = load_json_from_url(data_url)
             print(f"✅ Extracted {len(df)} rows from URL.")
 
             # SAVE: Save the downloaded data to the local path for future runs
@@ -46,6 +50,7 @@ def main():
     if df is None:
         print("❌ DataFrame could not be loaded. Halting execution.")
         return
+    df = ensure_non_empty(df, "Brewers Association JSON")
 
     # --- ANALYSIS & DEBUGGING ---
     print("\n--- 🕵️ Data Analysis ---")
@@ -70,22 +75,19 @@ def main():
     # To enable it, simply remove the triple quotes (""") before and after.
     print(f"🦆 Connecting to DuckDB at {db_path}...")
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    con = duckdb.connect(database=str(db_path), read_only=False)
+    with duckdb.connect(database=str(db_path), read_only=False) as con:
+        print("📦 Installing and loading SPATIAL extension...")
+        con.sql("INSTALL spatial;")
+        con.sql("LOAD spatial;")
+        print("✅ SPATIAL extension loaded.")
 
-    print("📦 Installing and loading SPATIAL extension...")
-    con.sql("INSTALL spatial;")
-    con.sql("LOAD spatial;")
-    print("✅ SPATIAL extension loaded.")
+        print(f"Writing {len(df)} rows to table '{table_name}'...")
+        con.sql(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM df")
 
-    print(f"Writing {len(df)} rows to table '{table_name}'...")
-    con.sql(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM df")
-
-    # Verify the data was loaded
-    result = con.sql(f"SELECT COUNT(*) FROM {table_name}").fetchone()
-    row_count = result[0] if result is not None else 0
-    print(f"✅ Successfully loaded {row_count} rows into '{table_name}'.")
-
-    con.close()
+        # Verify the data was loaded
+        result = con.sql(f"SELECT COUNT(*) FROM {table_name}").fetchone()
+        row_count = result[0] if result is not None else 0
+        print(f"✅ Successfully loaded {row_count} rows into '{table_name}'.")
     print("--- ETL process finished ---")
 
 

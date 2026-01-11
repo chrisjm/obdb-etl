@@ -1,6 +1,6 @@
 import duckdb
-import pandas as pd
 from extract.config import load_settings
+from extract.io_utils import ensure_non_empty, load_csv_from_url
 
 
 def main():
@@ -18,24 +18,22 @@ def main():
     # Ensure the target directory exists
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # EXTRACT: Read the data from the URL into a Pandas DataFrame
+    # EXTRACT: Read the data from the URL into a Pandas DataFrame with retry
     print(f"📥 Extracting data from {data_url}...")
-    df = pd.read_csv(data_url)
+    df = load_csv_from_url(data_url)
+    df = ensure_non_empty(df, "Open Brewery DB CSV")
     print(f"✅ Extracted {len(df)} rows.")
 
     # LOAD: Connect to DuckDB and load the data
     print(f"🦆 Connecting to DuckDB at {db_path}...")
-    con = duckdb.connect(database=str(db_path), read_only=False)
+    with duckdb.connect(database=str(db_path), read_only=False) as con:
+        print(f"Writing {len(df)} rows to table '{table_name}'...")
+        con.sql(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM df")
 
-    print(f"Writing {len(df)} rows to table '{table_name}'...")
-    con.sql(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM df")
-
-    # Verify the data was loaded
-    result = con.sql(f"SELECT COUNT(*) FROM {table_name}").fetchone()
-    row_count = result[0] if result is not None else 0
-    print(f"✅ Successfully loaded {row_count} rows into '{table_name}'.")
-
-    con.close()
+        # Verify the data was loaded
+        result = con.sql(f"SELECT COUNT(*) FROM {table_name}").fetchone()
+        row_count = result[0] if result is not None else 0
+        print(f"✅ Successfully loaded {row_count} rows into '{table_name}'.")
     print("--- ETL process finished ---")
 
 

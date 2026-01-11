@@ -1,6 +1,12 @@
 import duckdb
 from extract.config import load_settings
-from extract.io_utils import ensure_non_empty, load_csv_from_url
+from extract.io_utils import (
+    ensure_non_empty,
+    ensure_not_all_null,
+    ensure_required_columns,
+    load_csv_from_url,
+    log_ingest_run,
+)
 
 
 def main():
@@ -18,23 +24,44 @@ def main():
     # Ensure the target directory exists
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # EXTRACT: Read the data from the URL into a Pandas DataFrame with retry
-    print(f"📥 Extracting data from {data_url}...")
-    df = load_csv_from_url(data_url)
-    df = ensure_non_empty(df, "Open Brewery DB CSV")
-    print(f"✅ Extracted {len(df)} rows.")
+    row_count = 0
+    try:
+        # EXTRACT: Read the data from the URL into a Pandas DataFrame with retry
+        print(f"📥 Extracting data from {data_url}...")
+        df = load_csv_from_url(data_url)
+        df = ensure_non_empty(df, "Open Brewery DB CSV")
+        df = ensure_required_columns(
+            df, ["id", "name", "city", "state"], "Open Brewery DB CSV"
+        )
+        df = ensure_not_all_null(df, ["latitude", "longitude"], "Open Brewery DB CSV")
+        print(f"✅ Extracted {len(df)} rows.")
 
-    # LOAD: Connect to DuckDB and load the data
-    print(f"🦆 Connecting to DuckDB at {db_path}...")
-    with duckdb.connect(database=str(db_path), read_only=False) as con:
-        print(f"Writing {len(df)} rows to table '{table_name}'...")
-        con.sql(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM df")
+        # LOAD: Connect to DuckDB and load the data
+        print(f"🦆 Connecting to DuckDB at {db_path}...")
+        with duckdb.connect(database=str(db_path), read_only=False) as con:
+            print(f"Writing {len(df)} rows to table '{table_name}'...")
+            con.sql(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM df")
 
-        # Verify the data was loaded
-        result = con.sql(f"SELECT COUNT(*) FROM {table_name}").fetchone()
-        row_count = result[0] if result is not None else 0
-        print(f"✅ Successfully loaded {row_count} rows into '{table_name}'.")
-    print("--- ETL process finished ---")
+            # Verify the data was loaded
+            result = con.sql(f"SELECT COUNT(*) FROM {table_name}").fetchone()
+            row_count = result[0] if result is not None else 0
+            print(f"✅ Successfully loaded {row_count} rows into '{table_name}'.")
+            log_ingest_run(con, "obdb_csv", table_name, row_count, "success", None)
+        print("--- ETL process finished ---")
+    except Exception as exc:
+        print(f"❌ ETL failed: {exc}")
+        try:
+            with duckdb.connect(database=str(db_path), read_only=False) as con:
+                log_ingest_run(
+                    con,
+                    "obdb_csv",
+                    table_name,
+                    row_count,
+                    "failed",
+                    note=str(exc),
+                )
+        finally:
+            raise
 
 
 if __name__ == "__main__":

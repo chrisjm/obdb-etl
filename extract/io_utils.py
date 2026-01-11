@@ -1,7 +1,9 @@
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from io import BytesIO
+from typing import Iterable, Sequence
 
 import pandas as pd
 
@@ -46,7 +48,59 @@ def ensure_non_empty(df: pd.DataFrame, context: str) -> pd.DataFrame:
     return df
 
 
+def ensure_required_columns(
+    df: pd.DataFrame, columns: Sequence[str], context: str
+) -> pd.DataFrame:
+    missing = [c for c in columns if c not in df.columns]
+    if missing:
+        raise ValueError(f"{context}: missing required columns {missing}")
+    return df
+
+
+def ensure_not_all_null(
+    df: pd.DataFrame, columns: Iterable[str], context: str
+) -> pd.DataFrame:
+    cols = list(columns)
+    null_only = [c for c in cols if c in df.columns and df[c].isna().all()]
+    if null_only:
+        raise ValueError(f"{context}: columns entirely null {null_only}")
+    return df
+
+
 def profile_df(df: pd.DataFrame) -> None:
     print(f"DataFrame shape: {df.shape}")
     print("Column data types and non-null counts:")
     df.info()
+
+
+def log_ingest_run(
+    con,
+    source: str,
+    table_name: str,
+    row_count: int,
+    status: str,
+    note: str | None = None,
+) -> None:
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ingest_runs (
+            ts TIMESTAMP WITH TIME ZONE,
+            source STRING,
+            table_name STRING,
+            row_count BIGINT,
+            status STRING,
+            note STRING
+        )
+        """
+    )
+    con.execute(
+        "INSERT INTO ingest_runs VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            datetime.now(timezone.utc),
+            source,
+            table_name,
+            row_count,
+            status,
+            note,
+        ),
+    )

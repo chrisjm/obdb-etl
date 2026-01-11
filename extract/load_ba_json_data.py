@@ -4,6 +4,7 @@ from extract.config import load_settings
 from extract.io_utils import (
     ensure_non_empty,
     load_json_from_url,
+    log_ingest_run,
 )
 
 
@@ -20,18 +21,20 @@ def main():
 
     print("--- JSON ETL process started ---")
 
-    # EXTRACT: Check for a local file first, otherwise download and save.
-    df = None
-    if local_json_path.exists():
-        try:
-            print(f"📄 Local file found. Loading data from {local_json_path}...")
-            df = pd.read_json(local_json_path)
-            print(f"✅ Extracted {len(df)} rows from local file.")
-        except Exception as e:
-            print(f"❌ Failed to read or parse local JSON file: {e}")
-            return
-    else:
-        try:
+    row_count = 0
+    try:
+        # EXTRACT: Check for a local file first, otherwise download and save.
+        df = None
+        if local_json_path.exists():
+            try:
+                print(f"📄 Local file found. Loading data from {local_json_path}...")
+                df = pd.read_json(local_json_path)
+                print(f"✅ Extracted {len(df)} rows from local file.")
+            except Exception as e:
+                raise RuntimeError(
+                    f"Failed to read or parse local JSON file: {e}"
+                ) from e
+        else:
             print(f"📥 Local file not found. Downloading from {data_url}...")
             df = load_json_from_url(data_url)
             print(f"✅ Extracted {len(df)} rows from URL.")
@@ -42,53 +45,50 @@ def main():
             df.to_json(local_json_path, orient="records", indent=4)
             print("✅ Data saved locally for future use.")
 
-        except Exception as e:
-            print(f"❌ Failed to download or parse JSON data from URL: {e}")
-            return
+        # Halt if the DataFrame could not be created for any reason
+        if df is None:
+            raise RuntimeError("DataFrame could not be loaded.")
+        df = ensure_non_empty(df, "Brewers Association JSON")
 
-    # Halt if the DataFrame could not be created for any reason
-    if df is None:
-        print("❌ DataFrame could not be loaded. Halting execution.")
-        return
-    df = ensure_non_empty(df, "Brewers Association JSON")
+        # --- ANALYSIS & DEBUGGING ---
+        print("\n--- 🕵️ Data Analysis ---")
+        if not df.empty:
+            print("\nFirst 5 records:")
+            print(df.head())
 
-    # --- ANALYSIS & DEBUGGING ---
-    print("\n--- 🕵️ Data Analysis ---")
-    if not df.empty:
-        # Print the first 5 rows to see the structure (the "head")
-        print("\nFirst 5 records:")
-        print(df.head())
+            print(f"\nDataFrame shape: {df.shape}")
+            print("\nColumn data types and non-null counts:")
+            df.info()
+        else:
+            print("DataFrame is empty. No data to analyze.")
+        print("--- End of Analysis ---\n")
 
-        # Print the DataFrame's dimensions (rows, columns)
-        print(f"\nDataFrame shape: {df.shape}")
+        print(f"🦆 Connecting to DuckDB at {db_path}...")
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        with duckdb.connect(database=str(db_path), read_only=False) as con:
+            print("📦 Installing and loading SPATIAL extension...")
+            con.sql("INSTALL spatial;")
+            con.sql("LOAD spatial;")
+            print("✅ SPATIAL extension loaded.")
 
-        # Print a summary of the columns and their data types
-        print("\nColumn data types and non-null counts:")
-        df.info()
-    else:
-        print("DataFrame is empty. No data to analyze.")
-    print("--- End of Analysis ---\n")
+            print(f"Writing {len(df)} rows to table '{table_name}'...")
+            con.sql(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM df")
 
-    # --- LOAD (Optional) ---
-    # The following code will load the data into DuckDB.
-    # It is commented out by default so you can analyze first.
-    # To enable it, simply remove the triple quotes (""") before and after.
-    print(f"🦆 Connecting to DuckDB at {db_path}...")
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    with duckdb.connect(database=str(db_path), read_only=False) as con:
-        print("📦 Installing and loading SPATIAL extension...")
-        con.sql("INSTALL spatial;")
-        con.sql("LOAD spatial;")
-        print("✅ SPATIAL extension loaded.")
-
-        print(f"Writing {len(df)} rows to table '{table_name}'...")
-        con.sql(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM df")
-
-        # Verify the data was loaded
-        result = con.sql(f"SELECT COUNT(*) FROM {table_name}").fetchone()
-        row_count = result[0] if result is not None else 0
-        print(f"✅ Successfully loaded {row_count} rows into '{table_name}'.")
-    print("--- ETL process finished ---")
+            # Verify the data was loaded
+            result = con.sql(f"SELECT COUNT(*) FROM {table_name}").fetchone()
+            row_count = result[0] if result is not None else 0
+            print(f"✅ Successfully loaded {row_count} rows into '{table_name}'.")
+            log_ingest_run(con, "ba_json", table_name, row_count, "success", None)
+        print("--- ETL process finished ---")
+    except Exception as exc:
+        print(f"❌ ETL failed: {exc}")
+        try:
+            with duckdb.connect(database=str(db_path), read_only=False) as con:
+                log_ingest_run(
+                    con, "ba_json", table_name, row_count, "failed", note=str(exc)
+                )
+        finally:
+            raise
 
 
 if __name__ == "__main__":

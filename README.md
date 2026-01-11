@@ -17,7 +17,7 @@ This project extracts brewery data from the [Open Brewery DB](https://www.openbr
 
 ```
 main.py                  # Entry point (demo/placeholder)
-extract/load_raw_data.py # Extracts and loads raw data into DuckDB
+extract/load_obdb_csv_data.py # Extracts and loads raw data into DuckDB
 data/obdb.duckdb          # Local DuckDB database
 dbt_project/
 	brewery_models/
@@ -36,20 +36,28 @@ dbt_project/
 - [pandas](https://pandas.pydata.org/)
 - [Apache Airflow](https://airflow.apache.org/) (optional, for orchestration)
 
-Install dependencies:
+Install dependencies with [uv](https://github.com/astral-sh/uv) (preferred):
 
 ```bash
-python -m venv .venv
+# install uv if you don't have it
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# create + activate virtualenv
+uv venv
 source .venv/bin/activate
-pip install -r requirements.txt
+
+# install from pyproject + uv.lock
+uv sync
 ```
+
+All Python tools (including `dbt-duckdb`) are installed via `uv sync`; no separate OS-level dbt install is needed.
 
 ## Usage
 
 ### 1. Extract and Load Raw Data
 
 ```bash
-python extract/load_raw_data.py
+uv run python extract/load_obdb_csv_data.py
 ```
 
 This downloads the latest breweries data and loads it into `data/obdb.duckdb` as the `raw_obdb_breweries` table.
@@ -59,15 +67,43 @@ This downloads the latest breweries data and loads it into `data/obdb.duckdb` as
 Navigate to the dbt project directory:
 
 ```bash
-dbt run --project-dir dbt_project/brewery_models/
+uv run dbt run --project-dir dbt_project/brewery_models/
 ```
 
 This will create/refresh models like `stg_breweries` and `dim_breweries` in DuckDB.
 
+### 3. (Optional) Run via Airflow DAG
+
+The DAG lives at `dags/brewery_pipeline_dag.py`.
+
+Start Airflow locally with uv (Airflow 3+):
+
+```bash
+# migrate metadata DB (once)
+uv run airflow db migrate
+
+# easiest: all-in-one local stack (webserver + scheduler + default user)
+uv run airflow standalone
+
+# UI: http://localhost:8080 (default creds printed in stdout; usually admin/admin)
+```
+
+Then enable and trigger the `brewery_data_pipeline` DAG in the Airflow UI (http://localhost:8080). It will:
+
+- Run `extract/load_obdb_csv_data.py`
+- Run `extract/load_ba_json_data.py`
+- Run `dbt run` and `dbt test` against `dbt_project/brewery_models/`
+
+Optional CLI trigger (instead of using the UI):
+
+```bash
+uv run airflow dags trigger brewery_data_pipeline
+```
+
 ## Testing
 
 ```bash
-dbt test --project-dir dbt_project/brewery_models/
+uv run dbt test --project-dir dbt_project/brewery_models/
 ```
 
 ## dbt Models

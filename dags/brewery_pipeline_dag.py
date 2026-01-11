@@ -1,3 +1,5 @@
+import os
+
 import pendulum
 from airflow.decorators import dag, task
 
@@ -11,7 +13,9 @@ default_args = {
 @dag(
     dag_id="brewery_data_pipeline",
     start_date=pendulum.datetime(2025, 8, 29, tz="America/Los_Angeles"),
-    schedule="*/5 * * * *",
+    schedule=os.getenv(
+        "OBDB_DAG_SCHEDULE", "0 * * * *"
+    ),  # default hourly; override via env
     catchup=False,
     doc_md="""
   ### Brewery Data Pipeline (v2)
@@ -21,29 +25,33 @@ default_args = {
 def brewery_pipeline():
     """Defines the full brewery data pipeline."""
 
-    project_dir = "{{ dag.folder }}/.."
-    dbt_project_dir = f"{project_dir}/dbt_project/brewery_models"
-    venv_python = f"{project_dir}/.venv/bin/python"
+    project_dir = os.getenv("OBDB_PROJECT_DIR", "{{ dag.folder }}/..")
+    dbt_project_dir = os.getenv(
+        "OBDB_DBT_PROJECT_DIR", f"{project_dir}/dbt_project/brewery_models"
+    )
+    venv_python = os.getenv("OBDB_VENV_PYTHON", f"{project_dir}/.venv/bin/python")
+
+    bash_opts = "set -euo pipefail"
 
     @task.bash(cwd=project_dir)
     def load_obdb_data() -> str:
         """Runs the Python script to load raw data."""
-        return f"{venv_python} ./extract/load_obdb_csv_data.py"
+        return f"{bash_opts}\n{venv_python} ./extract/load_obdb_csv_data.py"
 
     @task.bash(cwd=project_dir)
     def load_ba_data() -> str:
         """Runs the Python script to load raw JSON data."""
-        return f"{venv_python} ./extract/load_ba_json_data.py"
+        return f"{bash_opts}\n{venv_python} ./extract/load_ba_json_data.py"
 
     @task.bash(cwd=dbt_project_dir)
     def dbt_run() -> str:
         """Runs the dbt models."""
-        return "dbt run"
+        return f"{bash_opts}\ndbt run"
 
     @task.bash(cwd=dbt_project_dir)
     def dbt_test() -> str:
         """Runs the dbt tests after the models are built."""
-        return "dbt test"
+        return f"{bash_opts}\ndbt test"
 
     load_obdb_task = load_obdb_data()
     load_ba_task = load_ba_data()

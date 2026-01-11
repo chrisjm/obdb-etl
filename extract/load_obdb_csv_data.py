@@ -7,6 +7,7 @@ from extract.io_utils import (
     load_csv_from_url,
     log_ingest_run,
 )
+from extract.duckdb_utils import write_df_to_duckdb
 
 
 def main():
@@ -38,14 +39,9 @@ def main():
 
         # LOAD: Connect to DuckDB and load the data
         print(f"🦆 Connecting to DuckDB at {db_path}...")
+        row_count = write_df_to_duckdb(df, table_name, db_path, load_spatial=False)
+        print(f"✅ Successfully loaded {row_count} rows into '{table_name}'.")
         with duckdb.connect(database=str(db_path), read_only=False) as con:
-            print(f"Writing {len(df)} rows to table '{table_name}'...")
-            con.sql(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM df")
-
-            # Verify the data was loaded
-            result = con.sql(f"SELECT COUNT(*) FROM {table_name}").fetchone()
-            row_count = result[0] if result is not None else 0
-            print(f"✅ Successfully loaded {row_count} rows into '{table_name}'.")
             log_ingest_run(con, "obdb_csv", table_name, row_count, "success", None)
         print("--- ETL process finished ---")
     except Exception as exc:

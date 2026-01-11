@@ -1,6 +1,7 @@
 import duckdb
 import pandas as pd
 from extract.config import load_settings
+from extract.duckdb_utils import write_df_to_duckdb
 from extract.io_utils import (
     ensure_non_empty,
     load_json_from_url,
@@ -65,19 +66,9 @@ def main():
 
         print(f"🦆 Connecting to DuckDB at {db_path}...")
         db_path.parent.mkdir(parents=True, exist_ok=True)
+        row_count = write_df_to_duckdb(df, table_name, db_path, load_spatial=True)
+        print(f"✅ Successfully loaded {row_count} rows into '{table_name}'.")
         with duckdb.connect(database=str(db_path), read_only=False) as con:
-            print("📦 Installing and loading SPATIAL extension...")
-            con.sql("INSTALL spatial;")
-            con.sql("LOAD spatial;")
-            print("✅ SPATIAL extension loaded.")
-
-            print(f"Writing {len(df)} rows to table '{table_name}'...")
-            con.sql(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM df")
-
-            # Verify the data was loaded
-            result = con.sql(f"SELECT COUNT(*) FROM {table_name}").fetchone()
-            row_count = result[0] if result is not None else 0
-            print(f"✅ Successfully loaded {row_count} rows into '{table_name}'.")
             log_ingest_run(con, "ba_json", table_name, row_count, "success", None)
         print("--- ETL process finished ---")
     except Exception as exc:

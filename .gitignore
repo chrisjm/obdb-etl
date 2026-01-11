@@ -37,3 +37,7 @@ wheels/
 *.duckdb
 /logs
 remomix-output.xml
+
+.ruff_cache/
+.mypy_cache/
+

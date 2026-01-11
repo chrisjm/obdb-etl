@@ -1,23 +1,6 @@
 import duckdb
 import pandas as pd
-from pathlib import Path
-
-# --- Configuration ---
-# Get the project root directory
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-
-# The local path to our DuckDB database file
-DB_PATH = PROJECT_ROOT / "data" / "obdb.duckdb"
-
-# The raw data source (a temporary JSON file on the web)
-# https://www.brewersassociation.org/wp-content/themes/ba2019/json-store/breweries/breweries.json?nocache=1756663355733
-DATA_URL = "https://www.brewersassociation.org/wp-content/themes/ba2019/json-store/breweries/breweries.json?nocache=1756663355733"
-
-# The local cache path for the downloaded JSON data
-LOCAL_JSON_PATH = PROJECT_ROOT / "data" / "breweries.json"
-
-# The name of the table we'll create in DuckDB
-TABLE_NAME = "raw_ba_json_data"
+from extract.config import load_settings
 
 
 def main():
@@ -25,28 +8,34 @@ def main():
     Extracts data from a JSON source. It first checks for a local file,
     if not found, it downloads, saves it locally, and then proceeds with analysis.
     """
+    settings = load_settings()
+    db_path = settings.db_path
+    data_url = settings.ba_json_url
+    local_json_path = settings.ba_local_json_path
+    table_name = settings.ba_table
+
     print("--- JSON ETL process started ---")
 
     # EXTRACT: Check for a local file first, otherwise download and save.
     df = None
-    if LOCAL_JSON_PATH.exists():
+    if local_json_path.exists():
         try:
-            print(f"📄 Local file found. Loading data from {LOCAL_JSON_PATH}...")
-            df = pd.read_json(LOCAL_JSON_PATH)
+            print(f"📄 Local file found. Loading data from {local_json_path}...")
+            df = pd.read_json(local_json_path)
             print(f"✅ Extracted {len(df)} rows from local file.")
         except Exception as e:
             print(f"❌ Failed to read or parse local JSON file: {e}")
             return
     else:
         try:
-            print(f"📥 Local file not found. Downloading from {DATA_URL}...")
-            df = pd.read_json(DATA_URL)
+            print(f"📥 Local file not found. Downloading from {data_url}...")
+            df = pd.read_json(data_url)
             print(f"✅ Extracted {len(df)} rows from URL.")
 
             # SAVE: Save the downloaded data to the local path for future runs
-            print(f"💾 Saving data to {LOCAL_JSON_PATH}...")
-            LOCAL_JSON_PATH.parent.mkdir(parents=True, exist_ok=True)
-            df.to_json(LOCAL_JSON_PATH, orient="records", indent=4)
+            print(f"💾 Saving data to {local_json_path}...")
+            local_json_path.parent.mkdir(parents=True, exist_ok=True)
+            df.to_json(local_json_path, orient="records", indent=4)
             print("✅ Data saved locally for future use.")
 
         except Exception as e:
@@ -79,22 +68,22 @@ def main():
     # The following code will load the data into DuckDB.
     # It is commented out by default so you can analyze first.
     # To enable it, simply remove the triple quotes (""") before and after.
-    print(f"🦆 Connecting to DuckDB at {DB_PATH}...")
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    con = duckdb.connect(database=str(DB_PATH), read_only=False)
+    print(f"🦆 Connecting to DuckDB at {db_path}...")
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    con = duckdb.connect(database=str(db_path), read_only=False)
 
     print("📦 Installing and loading SPATIAL extension...")
     con.sql("INSTALL spatial;")
     con.sql("LOAD spatial;")
     print("✅ SPATIAL extension loaded.")
 
-    print(f"Writing {len(df)} rows to table '{TABLE_NAME}'...")
-    con.sql(f"CREATE OR REPLACE TABLE {TABLE_NAME} AS SELECT * FROM df")
+    print(f"Writing {len(df)} rows to table '{table_name}'...")
+    con.sql(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM df")
 
     # Verify the data was loaded
-    result = con.sql(f"SELECT COUNT(*) FROM {TABLE_NAME}").fetchone()
+    result = con.sql(f"SELECT COUNT(*) FROM {table_name}").fetchone()
     row_count = result[0] if result is not None else 0
-    print(f"✅ Successfully loaded {row_count} rows into '{TABLE_NAME}'.")
+    print(f"✅ Successfully loaded {row_count} rows into '{table_name}'.")
 
     con.close()
     print("--- ETL process finished ---")
